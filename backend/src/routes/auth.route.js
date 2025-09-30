@@ -21,6 +21,9 @@ const upload = multer({ storage });
 
 router.post("/signup", signup);
 router.post("/login", login);
+router.get("/login", (req, res) => {
+  res.status(405).json({ message: "Use POST to login" });
+});
 router.post("/logout", logout);
 router.put(
   "/update-profile",

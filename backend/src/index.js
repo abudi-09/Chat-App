@@ -4,7 +4,12 @@ import express from "express";
 import "./lib/cloudinary.js";
 console.log("MONGODB_URI:", process.env.MONGODB_URI);
 import authRoutes from "./routes/auth.route.js";
+import channelRoutes from "./routes/channel.route.js";
+import groupRoutes from "./routes/group.route.js";
 import messageRoutes from "./routes/message.route.js";
+import postRoutes from "./routes/post.route.js";
+import storyRoutes from "./routes/story.route.js";
+import userRoutes from "./routes/user.route.js";
 import { connectDB } from "./lib/db.js";
 import cookieParser from "cookie-parser";
 import multer from "multer";
@@ -32,6 +37,11 @@ app.use((req, res, next) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/channels", channelRoutes);
+app.use("/api/groups", groupRoutes);
+app.use("/api/posts", postRoutes);
+app.use("/api/stories", storyRoutes);
+app.use("/api/users", userRoutes);
 
 const PORT = process.env.PORT || 5001;
 
