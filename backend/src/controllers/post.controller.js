@@ -16,6 +16,39 @@ const extractHashtags = (text = "") => {
   return Array.from(matches);
 };
 
+const toPlain = (doc) => {
+  if (!doc) return doc;
+  if (doc.toObject) {
+    return doc.toObject({ virtuals: true });
+  }
+  return { ...doc };
+};
+
+const normalizeId = (value) => {
+  if (!value) return value;
+  if (typeof value === "string") return value;
+  if (value.toString) return value.toString();
+  return value;
+};
+
+const normalizeUser = (user) => {
+  if (!user) return null;
+  const plain = toPlain(user);
+  return {
+    ...plain,
+    _id: normalizeId(plain._id),
+  };
+};
+
+const normalizeChannel = (channel) => {
+  if (!channel) return null;
+  const plain = toPlain(channel);
+  return {
+    ...plain,
+    _id: normalizeId(plain._id),
+  };
+};
+
 const ensurePostMetrics = (post) => {
   if (!post.metrics) {
     post.metrics = {
@@ -34,7 +67,7 @@ const sanitizeVisibility = (value) => {
 };
 
 const serializePost = (postDoc, currentUserId) => {
-  const post = postDoc.toObject ? postDoc.toObject() : postDoc;
+  const post = toPlain(postDoc);
   const metrics = post.metrics || {
     likes: 0,
     comments: 0,
@@ -46,8 +79,20 @@ const serializePost = (postDoc, currentUserId) => {
       post.likedBy?.some((id) => id.toString() === currentUserId.toString())
   );
 
+  const likedBy = Array.isArray(post.likedBy)
+    ? post.likedBy.map((id) => normalizeId(id))
+    : [];
+  const repostOf = post.repostOf
+    ? serializeRepost(post.repostOf, currentUserId)
+    : null;
+
   return {
     ...post,
+    _id: normalizeId(post._id),
+    author: normalizeUser(post.author),
+    channel: normalizeChannel(post.channel),
+    likedBy,
+    repostOf,
     metrics,
     liked,
     likeCount: metrics.likes ?? post.likedBy?.length ?? 0,
@@ -56,8 +101,36 @@ const serializePost = (postDoc, currentUserId) => {
   };
 };
 
+const serializeRepost = (repostDoc, currentUserId) => {
+  const plain = toPlain(repostDoc);
+  const metrics = plain.metrics || {
+    likes: 0,
+    comments: 0,
+    reposts: 0,
+    views: 0,
+  };
+
+  return {
+    ...plain,
+    _id: normalizeId(plain._id),
+    author: normalizeUser(plain.author),
+    channel: normalizeChannel(plain.channel),
+    likedBy: Array.isArray(plain.likedBy)
+      ? plain.likedBy.map((id) => normalizeId(id))
+      : [],
+    metrics,
+    liked: Boolean(
+      currentUserId &&
+        plain.likedBy?.some((id) => id.toString() === currentUserId.toString())
+    ),
+    likeCount: metrics.likes ?? plain.likedBy?.length ?? 0,
+    commentCount: metrics.comments ?? plain.commentsCount ?? 0,
+    repostCount: metrics.reposts ?? 0,
+  };
+};
+
 const serializeComment = (commentDoc, currentUserId) => {
-  const comment = commentDoc.toObject ? commentDoc.toObject() : commentDoc;
+  const comment = toPlain(commentDoc);
   const metrics = comment.metrics || { likes: 0, replies: 0 };
   const liked = Boolean(
     currentUserId &&
@@ -66,6 +139,13 @@ const serializeComment = (commentDoc, currentUserId) => {
 
   return {
     ...comment,
+    _id: normalizeId(comment._id),
+    post: normalizeId(comment.post),
+    author: normalizeUser(comment.author),
+    parentComment: normalizeId(comment.parentComment),
+    likedBy: Array.isArray(comment.likedBy)
+      ? comment.likedBy.map((id) => normalizeId(id))
+      : [],
     metrics,
     liked,
     likeCount: metrics.likes ?? comment.likedBy?.length ?? 0,
@@ -486,11 +566,9 @@ export const uploadPostMedia = async (req, res) => {
 
     if (size > maxSize) {
       await fs.unlink(filePath);
-      return res
-        .status(400)
-        .json({
-          message: `File exceeds maximum size of ${isVideo ? "50MB" : "10MB"}`,
-        });
+      return res.status(400).json({
+        message: `File exceeds maximum size of ${isVideo ? "50MB" : "10MB"}`,
+      });
     }
 
     const supported = [
