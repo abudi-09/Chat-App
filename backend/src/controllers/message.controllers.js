@@ -1,8 +1,46 @@
 import User from "../models/user.model.js";
 import Message from "../models/message.model.js";
+import Conversation from "../models/conversation.model.js";
 import cloudinary from "../lib/cloudinary.js";
 import { getReceiverSocketId } from "../lib/socket.js";
 import { io } from "../lib/socket.js";
+
+const buildDmConversationQuery = (userA, userB) => ({
+  type: "dm",
+  participants: { $all: [userA, userB] },
+  "participants.0": { $exists: true },
+  "participants.1": { $exists: true },
+  "participants.2": { $exists: false },
+});
+
+const updateConversationSnapshot = async ({
+  senderId,
+  receiverId,
+  text,
+  imageUrl,
+  messageCreatedAt,
+}) => {
+  const query = buildDmConversationQuery(senderId, receiverId);
+  let conversation = await Conversation.findOne(query);
+
+  if (!conversation) {
+    conversation = await Conversation.create({
+      type: "dm",
+      participants: [senderId, receiverId],
+    });
+  }
+
+  conversation.lastMessage = {
+    text: text?.slice(0, 2000) || "",
+    image: imageUrl || "",
+    createdAt: messageCreatedAt,
+  };
+
+  await conversation.save();
+  await conversation.populate("participants", "fullname email profilePic");
+
+  return conversation;
+};
 export const getUsersForsidebar = async (req, res) => {
   try {
     const users = await User.find({ _id: { $ne: req.user._id } }).select(
@@ -62,12 +100,27 @@ export const sendMessage = async (req, res) => {
       image: imageUrl,
     });
     await newMessage.save();
+
+    const conversation = await updateConversationSnapshot({
+      senderId,
+      receiverId,
+      text,
+      imageUrl,
+      messageCreatedAt: newMessage.createdAt,
+    });
+
     const receiverSocketId = getReceiverSocketId(receiverId);
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("newMessage", newMessage);
+      io.to(receiverSocketId).emit("conversationUpdated", conversation);
     }
 
-    res.status(201).json(newMessage);
+    const senderSocketId = getReceiverSocketId(senderId);
+    if (senderSocketId) {
+      io.to(senderSocketId).emit("conversationUpdated", conversation);
+    }
+
+    res.status(201).json({ message: newMessage, conversation });
   } catch (error) {
     console.error("Error in sendMessage controller:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
