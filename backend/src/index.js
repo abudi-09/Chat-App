@@ -17,10 +17,28 @@ import multer from "multer";
 import cors from "cors";
 import { app, server } from "./lib/socket.js"; // Importing the socket server setup
 
+const allowedOrigins = (
+  process.env.FRONTEND_URLS || "http://localhost:5173,http://localhost:5174"
+)
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
-app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      console.warn(`Blocked CORS origin: ${origin}`);
+      return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  })
+);
 
 // Multer setup for file uploads
 const storage = multer.diskStorage({
